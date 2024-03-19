@@ -1,0 +1,154 @@
+﻿Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+'TJS, November 2021
+'Customer: Super Radiator Coils
+'Quote: 13029
+'Business Case: The customer is needing a solution to mass update PO Line Pricing from 
+'their approved vendors once the vendor sends over a pricing acknowledgement.
+V.Local.sFile.Declare
+V.Local.sRet.Declare
+V.Local.sPriceList.Declare
+V.Local.iCnt.Declare
+V.Local.sSQL.Declare
+V.Local.iRowCnt.Declare
+V.Local.fPctCompl.Declare
+V.Local.fQtyOrd.Declare
+V.Local.fExtCost.Declare
+V.Local.sDtChg.Declare
+V.Local.sTmChg.Declare
+V.Local.sFailed.Declare
+V.Local.sMsg.Declare
+V.Local.sFlag.Declare
+
+F.Intrinsic.String.Format(V.Ambient.Date,"YYYYMMDD",V.Local.sDtChg)
+F.Intrinsic.String.Format(V.Ambient.Time,"HHNNSSSS",V.Local.sTmChg)
+
+F.Intrinsic.UI.ShowOpenFileDialog("","",V.Local.sFile)
+
+F.Intrinsic.Control.If(V.Local.sFile,=,"***CANCEL***")
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.File.GetExtensionComponent(V.Local.sFile,V.Local.sRet)
+
+F.Intrinsic.Control.If(V.Local.sRet.UCase,<>,"CSV")
+	F.Intrinsic.UI.Msgbox("Please select a CSV formatted file","Wrong file format.")
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndIf
+
+F.Automation.MSExcel.ReadSpreadsheet(V.Local.sFile,V.Local.sPriceList)
+
+F.Intrinsic.String.Split(V.Local.sPriceList,"$!$",V.Local.sPriceList)
+F.Intrinsic.Variable.RemoveArrayElementByOrdinal(V.Local.sPriceList,0,V.Local.sPriceList)
+V.Local.sPriceList.RedimPreserve
+F.Intrinsic.String.Join(V.Local.sPriceList,"$!$",V.Local.sPriceList)
+V.Local.sPriceList.RedimPreserve(0,0)
+
+F.Data.DataTable.CreateFromString("dtPriceUpdate",V.Local.sPriceList,"PO*!*PO_LINE*!*COST*!*PART*!*COLUMN5*!*COLUMN6*!*COLUMN7*!*COLUMN8*!*COLUMN9*!*COLUMN10*!*COLUMN11*!*COLUMN12*!*COLUMN13*!*COLUMN14*!*COLUMN15*!*COLUMN16*!*COLUMN17*!*COLUMN18*!*COLUMN19*!*COLUMN20","String*!*Long*!*Float*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String*!*String","*!*","$!$",True)
+
+F.Data.DataTable.AddColumn("dtPriceUpdate","PO_NUM","String")
+F.Data.DataTable.AddExpressionColumn("dtPriceUpdate","POLINE","String","PO_LINE*10")
+F.Data.DataTable.AddColumn("dtPriceUpdate","RECORD_NO","String")
+F.Data.DataTable.SetValueFormat("dtPriceUpdate",-1,"PO","PO_NUM","0000000")
+F.Data.DataTable.SetValueFormat("dtPriceUpdate",-1,"POLINE","RECORD_NO","0000")
+
+F.ODBC.Connection!conts.OpenCompanyConnection
+
+V.Local.iRowCnt.Set(V.DataTable.dtPriceUpdate.RowCount)
+
+F.Intrinsic.UI.InvokeWaitDialog("Working...","Please wait",0)
+
+F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtPriceUpdate.RowCount--,1)
+	F.Intrinsic.Math.Div(V.Local.iCnt,V.Local.iRowCnt,V.Local.fPctCompl)
+	F.Intrinsic.Math.Mult(V.Local.fPctCompl,100,V.Local.fPctCompl)
+	F.Intrinsic.UI.ChangeWaitStatus("Working...",V.Local.fPctCompl)
+	F.Intrinsic.String.Build("Select QTY_ORDER,FLAG_RECV_CLOSE,COST from PO_LINES where PURCHASE_ORDER = '{0}' and RECORD_NO = '{1}'",V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_NUM!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).RECORD_NO!FieldValTrim,V.Local.sSQL)
+	F.ODBC.Connection!conts.ExecuteAndReturn(V.Local.sSQL,V.Local.sSQL)
+	F.Intrinsic.Control.If(V.Local.sSQL.Trim,=,"")
+		F.Intrinsic.Control.If(V.Local.sFailed.Trim,=,"")
+			F.Intrinsic.String.Build("PO {0}, Line {1} does not exist.",V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Local.sFailed)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.Build("{0}{1}PO {2}, Line {3} does not exist.",V.Local.sFailed,V.Ambient.NewLine,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Local.sFailed)
+		F.Intrinsic.Control.EndIf
+		
+		F.Intrinsic.Control.If(V.DataTable.dtPriceUpdate.RowCount--,=,V.Local.iCnt)
+			F.Intrinsic.Control.GoTo("ExitFor")
+		F.Intrinsic.Control.Else
+			F.Intrinsic.Control.Next(V.Local.iCnt)
+		F.Intrinsic.Control.EndIf			
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.String.Split(V.Local.sSQL,"*!*",V.Local.sSQL)
+	
+	F.Intrinsic.Control.If(V.Local.sSQL(1).Trim,=,"Y")
+		F.Intrinsic.Control.If(V.Local.sFailed.Trim,=,"")
+			F.Intrinsic.String.Build("PO {0}, Line {1} is closed.",V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Local.sFailed)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.Build("{0}{1}PO {2}, Line {3} is closed.",V.Local.sFailed,V.Ambient.NewLine,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Local.sFailed)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.ElseIf(V.Local.sSQL(2),>,0)
+		F.Intrinsic.Control.If(V.DataTable.dtPriceUpdate(V.Local.iCnt).COST!FieldValFloat,<>,V.Local.sSQL(2).Float)
+			V.Local.sFlag.Set("!!")
+		F.Intrinsic.Control.Else
+			V.Local.sFlag.Set("")
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.If(V.Local.sFailed.Trim,=,"")
+			F.Intrinsic.String.Build("PO {0}, Line {1} already has a cost applied. Cost in GS: ${4}. Cost in file: ${5} {6}",V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Ambient.NewLine,V.Ambient.Tab,V.Local.sSQL(2).Float,V.DataTable.dtPriceUpdate(V.Local.iCnt).COST!FieldValFloat,V.Local.sFlag,V.Local.sFailed)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.Build("{0}{1}PO {2}, Line {3} already has a cost applied. Cost in GS: ${5}. Cost in file: ${6} {7}",V.Local.sFailed,V.Ambient.NewLine,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_LINE!FieldValTrim,V.Ambient.Tab,V.Local.sSQL(2).Float,V.DataTable.dtPriceUpdate(V.Local.iCnt).COST!FieldValFloat,V.Local.sFlag,V.Local.sFailed)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Else
+		V.Local.fQtyOrd.Set(V.Local.sSQL(0))
+		F.Intrinsic.Math.Mult(V.DataTable.dtPriceUpdate(V.Local.iCnt).COST!FieldValFloat,V.Local.fQtyOrd,V.Local.fExtCost)
+		
+		F.Intrinsic.String.Build("Update PO_LINES set COST = '{0}',COST_6_DEC = '{0}',EXTENSION = '{1}',DATE_LAST_CHG = '{2}',TIME_LAST_CHG = '{3}',CHANGED_BY = 'GSS6534' where PURCHASE_ORDER = '{4}' and RECORD_NO = '{5}'",V.DataTable.dtPriceUpdate(V.Local.iCnt).COST!FieldValFloat,V.Local.fExtCost,V.Local.sDtChg,V.Local.sTmChg,V.DataTable.dtPriceUpdate(V.Local.iCnt).PO_NUM!FieldValTrim,V.DataTable.dtPriceUpdate(V.Local.iCnt).RECORD_NO!FieldValTrim,V.Local.sSQL)
+		F.ODBC.Connection!conts.Execute(V.Local.sSQL)
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Next(V.Local.iCnt)
+
+F.Intrinsic.Control.Label("ExitFor")
+
+F.ODBC.Connection!conts.Close
+
+F.Data.DataTable.Close("dtPriceUpdate")
+
+F.Intrinsic.UI.ChangeWaitStatus("Working...",100)
+
+F.Intrinsic.UI.Sleep(1)
+
+F.Intrinsic.Control.If(V.Local.sFailed.Trim,=,"")
+	F.Intrinsic.String.Build("All PO Lines updated successfully.",,V.Local.sMsg)
+F.Intrinsic.Control.Else
+	F.Intrinsic.String.Build("The following PO lines could not be updated:{0}{0}{1}",V.Ambient.NewLine,V.Local.sFailed,V.Local.sMsg)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.UI.MsgboxExt("Process Complete.",V.Local.sMsg,1,550,500)
+
+F.Intrinsic.UI.CloseWaitDialog
+
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(Error,"SubRoutine",V.Ambient.CurrentSubroutine,"eNumber",V.Ambient.ErrorNumber,"eDescription",V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.Error.Start
+V.Local.sError.Declare
+V.Local.iRet.Declare
+V.Local.sSep.Declare
+
+F.Intrinsic.String.Build("-------------------------------------------------------------------------------------",,V.Local.sSep)
+F.Intrinsic.String.Build("({5}-{6}){0}{7}{0}Project: {4}{0}{7}{0}Sub: {1}{0}Error: {2}, {3}", V.Ambient.NewLine, V.Args.SubRoutine, V.Args.eNumber, V.Args.eDescription,V.Caller.ScriptFile,V.Ambient.Date, V.Ambient.Time,V.Local.sSep,V.Local.sError)
+F.Intrinsic.UI.Msgbox(V.Local.sError,"Error",V.Local.iRet)
+Program.Sub.Error.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$tsmith$}$20211122074905719$}$xqPbj9atw05FglvzeFsZ9cqXP+qvG6tXTWX0u1WRXHwIWvtZmOAEPtk8RUmysQPWfVezn1I+Tp4=
+Program.Sub.Comments.End
